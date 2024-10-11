@@ -244,19 +244,31 @@ if FROM_INIT_PY:
 # Database
 ####################################
 
-# Check if the file exists
-if os.path.exists(f"{DATA_DIR}/ollama.db"):
-    # Rename the file
-    os.rename(f"{DATA_DIR}/ollama.db", f"{DATA_DIR}/webui.db")
-    log.info("Database migrated from Ollama-WebUI successfully.")
-else:
-    pass
+DATABASE_NAME = os.environ.get("DATABASE_NAME", "webui")
+DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{DATA_DIR}/{DATABASE_NAME}.db")
+DATABASE_ENGINE = os.environ.get("DATABASE_ENGINE", "postgres" if "postgres" in DATABASE_URL else "sqlite")
 
-DATABASE_URL = os.environ.get("DATABASE_URL", f"sqlite:///{DATA_DIR}/webui.db")
 
-# Replace the postgres:// with postgresql://
-if "postgres://" in DATABASE_URL:
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://")
+if DATABASE_ENGINE == "postgres":    
+    # Replace the postgres:// with postgresql://
+    if "postgres://" in DATABASE_URL:
+        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://")
+    
+    # Construct the DATABASE_URL if not provided fully qualified URL
+    if "postgresql://" not in DATABASE_URL:
+        DATABASE_HOST = os.environ.get("DATABASE_HOST", "postgres")
+        DATABASE_PORT = os.environ.get("DATABASE_PORT", 5432)
+        DATABASE_USERNAME = os.environ.get("DATABASE_USERNAME", "open_webui")
+        DATABASE_PASSWORD = os.environ.get("DATABASE_PASSWORD", "open_webui")
+    
+        # Actually construct the DATABASE_URL
+        DATABASE_URL = f"postgresql://{DATABASE_USERNAME}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_NAME}"
+elif DATABASE_ENGINE == "sqlite":
+    # Migrate legacy ollama.db
+    if os.path.exists(f"{DATA_DIR}/ollama.db"):
+        # Rename the file
+        os.rename(f"{DATA_DIR}/ollama.db", DATABASE_URL.replace("sqlite:///", ""))
+        log.info("Database migrated from Ollama-WebUI successfully.")
 
 DATABASE_POOL_SIZE = os.environ.get("DATABASE_POOL_SIZE", 0)
 

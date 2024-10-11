@@ -1,0 +1,17 @@
+services:
+  postgres:
+    image: postgres:13
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ${DATABASE_USERNAME-open_webui}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD-open_webui}
+      POSTGRES_DB: ${DATABASE_NAME-webui}
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    restart: unless-stopped
+    ports:
+      - ${DATABASE_PORT-5432}:5432
+
+volumes:
+  postgres: {}
