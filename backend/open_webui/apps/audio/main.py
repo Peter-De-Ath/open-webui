@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import uuid
+import multiprocessing
 from functools import lru_cache
 from pathlib import Path
 from pydub import AudioSegment
@@ -456,6 +457,27 @@ async def speech(request: Request, user=Depends(get_verified_user)):
         return FileResponse(file_path)
 
 
+def remove_silence_from_chunk(audio_chunk):
+    """Removes silence from an audio chunk."""
+    return split_on_silence(
+        audio_chunk,
+        min_silence_len=5000,  # minimum silence length for splitting
+        silence_thresh=-40  # silence volume threshold
+    )
+
+def remove_silence(audio):
+    """Removes silence from an audio file by splitting it into chunks and processing them in parallel."""
+    chunk_size = 5000  # chunk size in milliseconds
+    chunks = [audio[i:i+chunk_size] for i in range(0, len(audio), chunk_size)]
+
+    # Parallel processing of audio chunks
+    with multiprocessing.Pool(processes=multiprocessing.cpu_count()) as pool:
+        results = pool.map(remove_silence_from_chunk, chunks)
+
+    # Combining non-silent chunks
+    non_silent_segments = [segment for chunk in results for segment in chunk]
+    return sum(non_silent_segments) if non_silent_segments else audio
+
 def transcribe(file_path):
     print("transcribe", file_path)
     filename = os.path.basename(file_path)
@@ -559,6 +581,14 @@ def transcription(
             f.write(contents)
 
         try:
+            
+            # remove silence from audio file
+            audio = AudioSegment.from_file(file_path)
+            processed_audio = remove_silence(audio)  # Removing silence from audio
+
+            # Saving processed audio
+            processed_audio.export(file_path, format="wav")
+            
             if os.path.getsize(file_path) > MAX_FILE_SIZE:  # file is bigger than 25MB
                 log.debug(f"File size is larger than {MAX_FILE_SIZE_MB}MB")
                 audio = AudioSegment.from_file(file_path)
@@ -581,9 +611,7 @@ def transcription(
                         ),
                     )
 
-                data = transcribe(file_path)
-            else:
-                data = transcribe(file_path)
+            data = transcribe(file_path)
 
             file_path = file_path.split("/")[-1]
             return {**data, "filename": file_path}
