@@ -1714,6 +1714,18 @@ AUDIO_STT_MODEL = PersistentConfig(
     os.getenv("AUDIO_STT_MODEL", ""),
 )
 
+AUDIO_SST_REMOVE_SILENCE = PersistentConfig(
+    "AUDIO_SST_REMOVE_SILENCE",
+    "audio.sst.remove_silence",
+    os.getenv("AUDIO_TTS_REMOVE_SILENCE", "True").lower() == "true",
+)
+
+AUDIO_SST_REMOVE_SILENCE_THRESHOLD = PersistentConfig(
+    "AUDIO_STT_REMOVE_SILENCE_THRESHOLD",
+    "audio.stt.remove_silence_threshold",
+    int(os.getenv("AUDIO_STT_REMOVE_SILENCE_THRESHOLD", "40")),
+)
+
 AUDIO_TTS_OPENAI_API_BASE_URL = PersistentConfig(
     "AUDIO_TTS_OPENAI_API_BASE_URL",
     "audio.tts.openai.api_base_url",

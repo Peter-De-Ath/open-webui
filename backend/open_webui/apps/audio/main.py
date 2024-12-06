@@ -17,6 +17,8 @@ from open_webui.config import (
     AUDIO_STT_MODEL,
     AUDIO_STT_OPENAI_API_BASE_URL,
     AUDIO_STT_OPENAI_API_KEY,
+    AUDIO_SST_REMOVE_SILENCE,
+    AUDIO_SST_REMOVE_SILENCE_THRESHOLD,
     AUDIO_TTS_API_KEY,
     AUDIO_TTS_ENGINE,
     AUDIO_TTS_MODEL,
@@ -76,6 +78,8 @@ app.state.config.STT_OPENAI_API_BASE_URL = AUDIO_STT_OPENAI_API_BASE_URL
 app.state.config.STT_OPENAI_API_KEY = AUDIO_STT_OPENAI_API_KEY
 app.state.config.STT_ENGINE = AUDIO_STT_ENGINE
 app.state.config.STT_MODEL = AUDIO_STT_MODEL
+app.state.config.STT_REMOVE_SILENCE = AUDIO_SST_REMOVE_SILENCE
+app.state.config.STT_REMOVE_SILENCE_THRESHOLD = AUDIO_SST_REMOVE_SILENCE_THRESHOLD
 
 app.state.config.WHISPER_MODEL = WHISPER_MODEL
 app.state.faster_whisper_model = None
@@ -146,6 +150,8 @@ class STTConfigForm(BaseModel):
     ENGINE: str
     MODEL: str
     WHISPER_MODEL: str
+    REMOVE_SILENCE: bool
+    REMOVE_SILENCE_THRESHOLD: int
 
 
 class AudioConfigUpdateForm(BaseModel):
@@ -200,6 +206,8 @@ async def get_audio_config(user=Depends(get_admin_user)):
             "ENGINE": app.state.config.STT_ENGINE,
             "MODEL": app.state.config.STT_MODEL,
             "WHISPER_MODEL": app.state.config.WHISPER_MODEL,
+            "REMOVE_SILENCE": app.state.config.STT_REMOVE_SILENCE,
+            "REMOVE_SILENCE_THRESHOLD": app.state.config.STT_REMOVE_SILENCE_THRESHOLD,
         },
     }
 
@@ -224,6 +232,8 @@ async def update_audio_config(
     app.state.config.STT_OPENAI_API_KEY = form_data.stt.OPENAI_API_KEY
     app.state.config.STT_ENGINE = form_data.stt.ENGINE
     app.state.config.STT_MODEL = form_data.stt.MODEL
+    app.state.config.STT_REMOVE_SILENCE = form_data.stt.REMOVE_SILENCE
+    app.state.config.STT_REMOVE_SILENCE_THRESHOLD = form_data.stt.REMOVE_SILENCE_THRESHOLD
     app.state.config.WHISPER_MODEL = form_data.stt.WHISPER_MODEL
     set_faster_whisper_model(form_data.stt.WHISPER_MODEL, WHISPER_MODEL_AUTO_UPDATE)
 
@@ -245,6 +255,8 @@ async def update_audio_config(
             "ENGINE": app.state.config.STT_ENGINE,
             "MODEL": app.state.config.STT_MODEL,
             "WHISPER_MODEL": app.state.config.WHISPER_MODEL,
+            "REMOVE_SILENCE": app.state.config.STT_REMOVE_SILENCE,
+            "REMOVE_SILENCE_THRESHOLD": app.state.config.STT_REMOVE_SILENCE_THRESHOLD,
         },
     }
 
@@ -461,12 +473,15 @@ def remove_silence_from_chunk(audio_chunk):
     """Removes silence from an audio chunk."""
     return split_on_silence(
         audio_chunk,
-        min_silence_len=5000,  # minimum silence length for splitting
-        silence_thresh=-40  # silence volume threshold
+        min_silence_len=5000,
+        silence_thresh=-app.state.config.STT_REMOVE_SILENCE_THRESHOLD,
     )
 
 def remove_silence(audio):
     """Removes silence from an audio file by splitting it into chunks and processing them in parallel."""
+    log.debug("Removing silence from audio")
+    log.debug(f"Removing silence from audio with threshold: {app.state.config.STT_REMOVE_SILENCE_THRESHOLD}")
+    
     chunk_size = 5000  # chunk size in milliseconds
     chunks = [audio[i:i+chunk_size] for i in range(0, len(audio), chunk_size)]
 
@@ -582,12 +597,12 @@ def transcription(
 
         try:
             
-            # remove silence from audio file
-            audio = AudioSegment.from_file(file_path)
-            processed_audio = remove_silence(audio)  # Removing silence from audio
-
-            # Saving processed audio
-            processed_audio.export(file_path, format="wav")
+            if app.state.config.STT_REMOVE_SILENCE:
+                # remove silence from audio file
+                audio = AudioSegment.from_file(file_path)
+                processed_audio = remove_silence(audio)  # Removing silence from audio
+                # Saving processed audio
+                processed_audio.export(file_path, format="wav")
             
             if os.path.getsize(file_path) > MAX_FILE_SIZE:  # file is bigger than 25MB
                 log.debug(f"File size is larger than {MAX_FILE_SIZE_MB}MB")

@@ -13,6 +13,7 @@
 	import { config } from '$lib/stores';
 
 	import SensitiveInput from '$lib/components/common/SensitiveInput.svelte';
+	import Switch from '$lib/components/common/Switch.svelte';
 
 	import { TTS_RESPONSE_SPLIT } from '$lib/types';
 
@@ -33,12 +34,14 @@
 	let TTS_SPLIT_ON: TTS_RESPONSE_SPLIT = TTS_RESPONSE_SPLIT.PUNCTUATION;
 	let TTS_AZURE_SPEECH_REGION = '';
 	let TTS_AZURE_SPEECH_OUTPUT_FORMAT = '';
-
+	
 	let STT_OPENAI_API_BASE_URL = '';
 	let STT_OPENAI_API_KEY = '';
 	let STT_ENGINE = '';
 	let STT_MODEL = '';
 	let STT_WHISPER_MODEL = '';
+	let STT_REMOVE_SILENCE = false;
+	let STT_REMOVE_SILENCE_THRESHOLD = 40;
 
 	let STT_WHISPER_MODEL_LOADING = false;
 
@@ -103,7 +106,9 @@
 				OPENAI_API_KEY: STT_OPENAI_API_KEY,
 				ENGINE: STT_ENGINE,
 				MODEL: STT_MODEL,
-				WHISPER_MODEL: STT_WHISPER_MODEL
+				WHISPER_MODEL: STT_WHISPER_MODEL,
+				REMOVE_SILENCE: STT_REMOVE_SILENCE,
+				REMOVE_SILENCE_THRESHOLD: STT_REMOVE_SILENCE_THRESHOLD,
 			}
 		});
 
@@ -136,13 +141,13 @@
 
 			TTS_AZURE_SPEECH_OUTPUT_FORMAT = res.tts.AZURE_SPEECH_OUTPUT_FORMAT;
 			TTS_AZURE_SPEECH_REGION = res.tts.AZURE_SPEECH_REGION;
-
 			STT_OPENAI_API_BASE_URL = res.stt.OPENAI_API_BASE_URL;
 			STT_OPENAI_API_KEY = res.stt.OPENAI_API_KEY;
-
 			STT_ENGINE = res.stt.ENGINE;
 			STT_MODEL = res.stt.MODEL;
 			STT_WHISPER_MODEL = res.stt.WHISPER_MODEL;
+			STT_REMOVE_SILENCE = res.stt.REMOVE_SILENCE;
+			STT_REMOVE_SILENCE_THRESHOLD = res.stt.REMOVE_SILENCE_THRESHOLD;
 		}
 
 		await getVoices();
@@ -293,6 +298,32 @@
 						</div>
 					</div>
 				{/if}
+
+				<hr class=" dark:border-gray-850 my-2" />
+
+				<div class="pt-0.5 flex w-full justify-between">
+					<div class="self-center text-xs font-medium">{$i18n.t('Remove silence')}</div>
+					<div class="flex items-center relative">
+						<Switch bind:state={STT_REMOVE_SILENCE} />	
+					</div>
+				</div>
+
+				{#if STT_REMOVE_SILENCE}
+					<div class="pt-2 flex w-full justify-between items-center">
+						<div class="self-center text-xs font-medium">{$i18n.t('Silence threshold')}</div>
+						<div class="flex items-center gap-2">
+							<input
+								type="range"
+								min="0"
+								max="100"
+								class="w-24"
+								bind:value={STT_REMOVE_SILENCE_THRESHOLD}
+							/>
+							<span class="text-xs w-8">{STT_REMOVE_SILENCE_THRESHOLD}%</span>
+						</div>
+					</div>
+				{/if}
+
 			</div>
 
 			<hr class=" dark:border-gray-800" />

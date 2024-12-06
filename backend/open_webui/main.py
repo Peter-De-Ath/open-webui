@@ -2633,6 +2633,8 @@ async def get_app_config(request: Request):
                     },
                     "stt": {
                         "engine": audio_app.state.config.STT_ENGINE,
+                        "remove_silence": audio_app.state.config.STT_REMOVE_SILENCE,
+                        "remove_silence_threshold": audio_app.state.config.STT_REMOVE_SILENCE_THRESHOLD,
                     },
                 },
                 "file": {
