@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from typing import Optional
+import requests
 
 from open_webui.models.functions import (
     FunctionForm,
@@ -8,7 +9,7 @@ from open_webui.models.functions import (
     FunctionResponse,
     Functions,
 )
-from open_webui.utils.plugin import load_function_module_by_id, replace_imports
+from open_webui.utils.plugin import load_function_module_by_id, replace_imports, extract_frontmatter
 from open_webui.config import CACHE_DIR
 from open_webui.constants import ERROR_MESSAGES
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -403,3 +404,98 @@ async def update_function_user_valves_by_id(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=ERROR_MESSAGES.NOT_FOUND,
         )
+
+############################
+# Helper Functions
+############################
+
+def _get_function_with_check(id: str) -> FunctionModel:
+    """Helper to get function and validate it exists"""
+    function = Functions.get_function_by_id(id)
+    if not function:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=ERROR_MESSAGES.NOT_FOUND,
+        )
+    return function
+
+def _get_update_url(function: FunctionModel) -> str:
+    """Helper to get and validate update URL"""
+    update_url = function.meta.manifest.get("update_url")
+    if not update_url:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Update URL not found in function manifest",
+        )
+    return update_url
+
+async def _fetch_and_check_version(function: FunctionModel) -> tuple[str, str, bool]:
+    """Helper to fetch latest version and check if update needed"""
+    try:
+        response = requests.get(_get_update_url(function))
+        response.raise_for_status()
+        script = response.text
+        frontmatter = extract_frontmatter(script)
+        latest_version = frontmatter.get("version")
+        current_version = function.meta.manifest.get("version")
+        needs_update = latest_version and latest_version != current_version
+        return script, latest_version, needs_update
+    except requests.RequestException as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Error checking for updates: {str(e)}",
+        )
+
+############################
+# API Endpoints
+############################
+
+@router.get("/id/{id}/check-updates", response_model=Optional[FunctionModel])
+async def check_function_updates(id: str, user=Depends(get_admin_user)):
+    function = _get_function_with_check(id)
+    _, latest_version, needs_update = await _fetch_and_check_version(function)
+    
+    if needs_update:
+        function.meta.manifest["update_available"] = True
+        Functions.update_function_by_id(id, {"meta": function.meta})
+        return function
+    raise HTTPException(
+        status_code=status.HTTP_200_OK,
+        detail="No updates available",
+    )
+
+@router.get("/check-all-updates", response_model=list[FunctionModel])
+async def check_all_function_updates(user=Depends(get_admin_user)):
+    functions = Functions.get_functions()
+    updated_functions = []
+
+    for function in functions:
+        if not function.meta.manifest.get("update_url"):
+            continue
+            
+        try:
+            _, _, needs_update = await _fetch_and_check_version(function)
+            if needs_update:
+                function_dump = function.model_dump()
+                function_dump["meta"]["manifest"]["update_available"] = True
+                updated_function = Functions.update_function_by_id(function.id, {"meta": function_dump["meta"]})
+                updated_functions.append(updated_function)
+        except HTTPException:
+            print(f"Error checking updates for function {function.id}")
+            continue
+
+    return updated_functions
+
+@router.post("/id/{id}/update-from-url", response_model=Optional[FunctionModel])
+async def update_function_from_url(request: Request, id: str, user=Depends(get_admin_user)):
+    function = _get_function_with_check(id)
+    new_content, _, _ = await _fetch_and_check_version(function)
+    
+    form_data = FunctionForm(
+        id=id,
+        name=function.name,
+        content=new_content,
+        meta=function.meta
+    )
+    
+    return await update_function_by_id(request, id, form_data, user)

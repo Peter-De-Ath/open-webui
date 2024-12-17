@@ -14,7 +14,9 @@
 		getFunctionById,
 		getFunctions,
 		toggleFunctionById,
-		toggleGlobalById
+		toggleGlobalById,
+		checkAllFunctionUpdates,
+		updateFunctionFromUrl
 	} from '$lib/apis/functions';
 
 	import ArrowDownTray from '../icons/ArrowDownTray.svelte';
@@ -151,6 +153,34 @@
 		}
 	};
 
+	const checkUpdatesHandler = async () => {
+		toast.info($i18n.t('Checking for updates...'));
+		const updatedFunctions = await checkAllFunctionUpdates(localStorage.token).catch((error) => {
+			toast.error(error);
+			return null;
+		});
+
+		if (updatedFunctions && updatedFunctions.length > 0) {
+			toast.success($i18n.t('Updates available for some functions'));
+			functions.set(await getFunctions(localStorage.token));
+		} else {
+			toast.info($i18n.t('No updates available'));
+		}
+	};
+
+	const updateFromUrlHandler = async (func) => {
+		const updatedFunction = await updateFunctionFromUrl(localStorage.token, func.id).catch((error) => {
+			toast.error(error);
+			return null;
+		});
+
+		if (updatedFunction) {
+			toast.success($i18n.t('Function updated successfully'));
+			functions.set(await getFunctions(localStorage.token));
+			models.set(await getModels(localStorage.token));
+		}
+	};
+
 	onMount(() => {
 		const onKeyDown = (event) => {
 			if (event.key === 'Shift') {
@@ -192,6 +222,17 @@
 			{$i18n.t('Functions')}
 			<div class="flex self-center w-[1px] h-6 mx-2.5 bg-gray-50 dark:bg-gray-850" />
 			<span class="text-base font-lg text-gray-500 dark:text-gray-300">{filteredItems.length}</span>
+		</div>
+		<div>
+			<button
+				class="flex text-xs items-center space-x-1 px-3 py-1.5 rounded-xl bg-gray-50 hover:bg-gray-100 dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-200 transition"
+				on:click={checkUpdatesHandler}
+			>
+				<div class="self-center mr-2 font-medium line-clamp-1">{$i18n.t('Check for Updates')}</div>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="w-4 h-4">
+					<path fill-rule="evenodd" d="M13.836 2.477a.75.75 0 0 1 .75.75v3.182a.75.75 0 0 1-.75.75h-3.182a.75.75 0 0 1 0-1.5h1.37L9.53 3.165A4.483 4.483 0 0 0 6.5 2C4.015 2 2 4.015 2 6.5S4.015 11 6.5 11c1.568 0 2.95-.81 3.755-2.031a.75.75 0 1 1 1.266.802A6 6 0 0 1 6.5 12.5c-3.314 0-6-2.686-6-6s2.686-6 6-6c1.784 0 3.384.78 4.488 2.017l2.098-2.099v1.31a.75.75 0 0 1-.75.75Z"/>
+				</svg>
+			</button>
 		</div>
 	</div>
 
@@ -273,6 +314,19 @@
 						</button>
 					</Tooltip>
 				{:else}
+
+					{#if func?.meta?.manifest?.update_available}
+						<Tooltip content={$i18n.t('Update Available')}>
+							<button
+								class="self-center w-fit text-sm px-2 py-2 dark:text-gray-300 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/5 rounded-xl"
+								type="button"
+								on:click={() => updateFromUrlHandler(func)}
+							>
+								<ArrowDownTray />
+							</button>
+						</Tooltip>
+					{/if}
+
 					{#if func?.meta?.manifest?.funding_url ?? false}
 						<Tooltip content={$i18n.t('Support')}>
 							<button
