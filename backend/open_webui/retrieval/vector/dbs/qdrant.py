@@ -6,7 +6,7 @@ from qdrant_client.http.models import PointStruct
 from qdrant_client.models import models
 
 from open_webui.retrieval.vector.main import VectorItem, SearchResult, GetResult
-from open_webui.config import QDRANT_URI, QDRANT_API_KEY
+from open_webui.config import QDRANT_URI, QDRANT_API_KEY, QDRANT_ON_DISK
 from open_webui.env import SRC_LOG_LEVELS
 
 NO_LIMIT = 999999999
@@ -50,7 +50,8 @@ class QdrantClient:
         self.client.create_collection(
             collection_name=collection_name_with_prefix,
             vectors_config=models.VectorParams(
-                size=dimension, distance=models.Distance.COSINE
+                size=dimension, distance=models.Distance.COSINE,
+                on_disk=QDRANT_ON_DISK,
             ),
         )
 
