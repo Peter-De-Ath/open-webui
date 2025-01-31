@@ -16,6 +16,10 @@
 	import AccessControl from '../common/AccessControl.svelte';
 	import { stringify } from 'postcss';
 	import { toast } from 'svelte-sonner';
+	import TurndownService from 'turndown';
+	import { parseFile } from '$lib/utils/characters';
+
+
 
 	const i18n = getContext('i18n');
 
@@ -297,8 +301,28 @@
 			accept="image/*"
 			on:change={() => {
 				let reader = new FileReader();
-				reader.onload = (event) => {
+				reader.onload = async (event) => {
 					let originalImageUrl = `${event.target.result}`;
+
+					let character = await parseFile(inputFiles[0]).catch((error) => {
+						return null;
+					});
+
+					if (character && character.character) {
+						character = character.character;
+						console.log(character);
+
+						name = character.name;
+
+						const turndownService = new TurndownService();
+						info.meta.description = turndownService.turndown(character.summary);
+
+						info.params.system = `Personality: ${character.personality}${
+							character?.scenario ? `\nScenario: ${character.scenario}` : ''
+						}${character?.greeting ? `\First Message: ${character.greeting}` : ''}${
+							character?.examples ? `\nExamples: ${character.examples}` : ''
+						}`;
+					}
 
 					const img = new Image();
 					img.src = originalImageUrl;
