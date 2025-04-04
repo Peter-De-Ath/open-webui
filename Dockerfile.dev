@@ -1,0 +1,5 @@
+# Extend from the main Docker Image
+FROM ghcr.io/open-webui/open-webui:${WEBUI_DOCKER_TAG-main}
+
+# Install additional development dependencies
+RUN apt-get update && apt-get install -y npm
