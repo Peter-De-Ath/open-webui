@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    command: /bin/bash -c "cd /app && npm install && npm run dev & cd /app/backend && python3 -m pip install -r requirements.txt &&  python3 -m uvicorn open_webui.main:app --reload --host 0.0.0.0 --port 8080"
+    command: /bin/bash -c "cd /app && npm run dev:nofetch & cd /app/backend && ./dev.sh"
     volumes:
       - ./.env:/app/.env
       - ./components:/app/components
@@ -25,6 +25,9 @@ services:
       - ./tsconfig.json:/app/tsconfig.json
       - ./postcss.config.js:/app/postcss.config.js
       - ./.svelte-kit:/app/.svelte-kit
+      - ./backend/data:/app/backend/data
+    env_file:
+      - .env
     environment:
       # Development environment settings
       - ENV=dev
@@ -32,7 +35,7 @@ services:
       # Enable source maps for better debugging
       - VITE_ENABLE_SOURCEMAPS=true
       - VITE_HOST=0.0.0.0
-      - WEBUI_SECRET_KEY=1234
+      - 'WEBUI_SECRET_KEY='
     ports:
       - '8080:8080'
-      - '5173:5173'
+      - '5173:3000'
