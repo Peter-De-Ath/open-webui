@@ -5,7 +5,6 @@ services:
       dockerfile: Dockerfile.dev
     command: /bin/bash -c "cd /app && npm install && npm run dev & cd /app/backend && ./dev.sh"
     volumes:
-      - ./.svelte-kit:/app/.svelte-kit
       - ./backend:/app/backend
       - ./backend/data:/app/backend/data # Overriding the docker volume with a local directory
       - ./components:/app/components
@@ -17,7 +16,6 @@ services:
       - ./styles:/app/styles
       - ./test:/app/test
       - ./utils:/app/utils
-      - ./.env:/app/.env
       - ./package.json:/app/package.json
       - ./package-lock.json:/app/package-lock.json
       - ./postcss.config.js:/app/postcss.config.js
