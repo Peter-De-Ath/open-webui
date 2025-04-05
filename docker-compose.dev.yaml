@@ -38,4 +38,4 @@ services:
       - 'WEBUI_SECRET_KEY='
     ports:
       - '8080:8080'
-      - '5173:3000'
+      - '5173:5173'
