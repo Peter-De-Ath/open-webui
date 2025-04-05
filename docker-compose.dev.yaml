@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    command: /bin/bash -c "cd /app && npm run dev:nofetch & cd /app/backend && ./dev.sh"
+    command: /bin/bash -c "cd /app && npm install && npm run dev & cd /app/backend && ./dev.sh"
     volumes:
       - ./.env:/app/.env
       - ./components:/app/components
