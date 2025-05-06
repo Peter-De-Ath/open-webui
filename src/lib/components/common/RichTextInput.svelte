@@ -7,7 +7,7 @@
 	});
 	turndownService.escape = (string) => string;
 
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, tick } from 'svelte';
 	import { createEventDispatcher } from 'svelte';
 	const eventDispatch = createEventDispatcher();
 
@@ -55,6 +55,12 @@
 	let element;
 	let editor;
 
+	// State for floating button
+	let showFloatingButton = false;
+	let floatingButtonTop = 0;
+	let floatingButtonLeft = 0;
+	let floatingButtonElement; // Reference to the button element itself
+
 	const options = {
 		throwOnError: false
 	};
@@ -63,6 +69,10 @@
 		editor.setOptions({
 			editable: editable
 		});
+		// Close button if editor becomes non-editable
+		if (!editable) {
+			closeFloatingButton();
+		}
 	}
 
 	$: if (value === null && html !== null && editor) {
@@ -126,6 +136,24 @@
 		editor.commands.setContent(content);
 	};
 
+	export const replaceSelection = (newText) => {
+		if (editor && editor.state.selection && !editor.state.selection.empty) {
+			// Use insertContentAt to replace the selection range
+			const { from, to } = editor.state.selection;
+			editor.chain().focus().insertContentAt({ from, to }, newText).run();
+		}
+		closeFloatingButton();
+	};
+
+	// Add method to get selected text
+	export const getSelectedText = () => {
+		if (!editor || !editor.state.selection || editor.state.selection.empty) {
+			return '';
+		}
+		const { from, to } = editor.state.selection;
+		return editor.state.doc.textBetween(from, to);
+	};
+
 	const selectTemplate = () => {
 		if (value !== '') {
 			// After updating the state, try to find and select the next template
@@ -141,6 +169,91 @@
 			}, 0);
 		}
 	};
+
+	// --- Floating Button Logic ---
+	const updateButtonPosition = (event) => {
+		// Check if the click is outside the editor and the button itself
+		if (
+			!element?.contains(event.target) &&
+			!floatingButtonElement?.contains(event.target)
+		) {
+			closeFloatingButton();
+			return;
+		}
+
+		// Use timeout to allow selection to finalize
+		setTimeout(async () => {
+			await tick(); // Ensure DOM updates are processed
+
+			// Double-check if the event target is still within the editor after the tick
+			if (!element?.contains(event.target)) {
+				// If the final click/mouseup was outside, ensure button is closed
+				 // Allow clicking the button itself
+				if (!floatingButtonElement?.contains(event.target)) {
+					closeFloatingButton();
+				}
+				return;
+			}
+
+			let selection = window.getSelection();
+
+			if (selection && selection.toString().trim().length > 0 && editable) {
+				const range = selection.getRangeAt(0);
+				const rect = range.getBoundingClientRect();
+				const parentRect = element.getBoundingClientRect();
+
+				// Calculate position relative to the editor element's viewport
+				const top = rect.bottom - parentRect.top + element.scrollTop;
+				let left = rect.left - parentRect.left + element.scrollLeft;
+
+				floatingButtonTop = top;
+				floatingButtonLeft = left;
+				showFloatingButton = true;
+
+				// Adjust position if button goes off-screen
+				await tick(); // Wait for button to render to get its dimensions
+				if (floatingButtonElement) {
+					const buttonRect = floatingButtonElement.getBoundingClientRect();
+					const editorVisibleWidth = element.clientWidth; // Use clientWidth for visible area
+
+					if (left + buttonRect.width > editorVisibleWidth + element.scrollLeft) {
+						// If button goes off the right edge, align its right edge with the editor's right edge
+						floatingButtonLeft = editorVisibleWidth + element.scrollLeft - buttonRect.width - 5; // Adjust with padding
+					}
+					if (floatingButtonLeft < element.scrollLeft) {
+						// If button goes off the left edge, align its left edge
+						floatingButtonLeft = element.scrollLeft + 5;
+					}
+				}
+
+			} else {
+				// Only close if the click wasn't on the button itself
+				if (!floatingButtonElement?.contains(event.target)) {
+					closeFloatingButton();
+				}
+			}
+		}, 0);
+	};
+
+	const closeFloatingButton = () => {
+		showFloatingButton = false;
+	};
+
+	const handleInlineEditClick = () => {
+		const selectedText = getSelectedText();
+		if (selectedText) {
+			eventDispatch('inline-edit', { content: selectedText });
+		}
+		// Don't close immediately, let the parent component handle it or replacement
+		// closeFloatingButton();
+	};
+
+	const keydownHandler = (e) => {
+		if (e.key === 'Escape') {
+			closeFloatingButton();
+		}
+	};
+
 
 	onMount(async () => {
 		let content = value;
@@ -274,6 +387,16 @@
 						eventDispatch('focus', { event });
 						return false;
 					},
+					blur: (view, event) => {
+						// Delay closing to allow clicking the button
+						setTimeout(() => {
+							// Check if the newly focused element is the button itself
+							if (document.activeElement !== floatingButtonElement) {
+								closeFloatingButton();
+							}
+						}, 200);
+						return false;
+					},
 					keyup: (view, event) => {
 						eventDispatch('keyup', { event });
 						return false;
@@ -327,6 +450,10 @@
 								}
 							}
 						}
+						// Handle Escape key globally via document listener now
+						// if (event.key === 'Escape') {
+						// 	closeFloatingButton();
+						// }
 						eventDispatch('keydown', { event });
 						return false;
 					},
@@ -381,12 +508,21 @@
 		if (messageInput) {
 			selectTemplate();
 		}
+
+		// Add event listeners for floating button, I don't like this (should be more svelte-ish)
+		element?.addEventListener('mouseup', updateButtonPosition);
+		document.addEventListener('mouseup', updateButtonPosition); // Listen globally to close if clicked outside
+		document.addEventListener('keydown', keydownHandler); // Listen for Escape key
 	});
 
 	onDestroy(() => {
 		if (editor) {
 			editor.destroy();
 		}
+		// Remove event listeners, still don't like this
+		element?.removeEventListener('mouseup', updateButtonPosition);
+		document.removeEventListener('mouseup', updateButtonPosition);
+		document.removeEventListener('keydown', keydownHandler);
 	});
 
 	$: if (value !== null && editor) {
@@ -434,4 +570,18 @@
 	};
 </script>
 
-<div bind:this={element} class="relative w-full min-w-full h-full min-h-fit {className}" />
+<div bind:this={element} class="relative w-full min-w-full h-full min-h-fit {className}">
+	{#if showFloatingButton && editable}
+		<div class="absolute flex flex-row gap-0.5 shrink-0 p-1 bg-white dark:bg-gray-850 dark:text-gray-100 text-medium rounded-lg shadow-xl" style="top: {floatingButtonTop}px; left: {floatingButtonLeft}px;">
+			<button
+				bind:this={floatingButtonElement}
+				class="px-1 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-sm flex items-center gap-1 min-w-fit"
+				style="top: {floatingButtonTop}px; left: {floatingButtonLeft}px;"
+				on:click={handleInlineEditClick}
+				on:mousedown|stopPropagation={() => {}}
+			>
+				Inline Edit
+			</button>
+		</div>
+	{/if}
+</div>

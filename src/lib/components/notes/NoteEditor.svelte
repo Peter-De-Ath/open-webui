@@ -73,6 +73,7 @@
 	export let id: null | string = null;
 
 	let note = null;
+	let richTextInputInstance;
 
 	const newNote = {
 		title: '',
@@ -105,6 +106,12 @@
 
 	let enhancing = false;
 	let streaming = false;
+
+	// State for inline editing input
+	let showInlineEditInput = false;
+	let inlineEditUserInput = '';
+	let inlineEditSelectedText = '';
+	let inlineEditInputPosition = { top: 0, left: 0 };
 
 	const init = async () => {
 		loading = true;
@@ -193,6 +200,189 @@
 
 		enhancing = false;
 		versionIdx = null;
+	}
+
+	async function executeInlineEdit() {
+		if (!inlineEditSelectedText || enhancing || versionIdx !== null) {
+			return;
+		}
+
+		const selectedText = inlineEditSelectedText;
+		const userInput = inlineEditUserInput;
+
+		if (selectedModelId === '') {
+			toast.error($i18n.t('Please select a model.'));
+			cancelInlineEdit();
+			return;
+		}
+
+		const model = $models.find((model) => model.id === selectedModelId);
+		if (!model) {
+			selectedModelId = '';
+			toast.error($i18n.t('Selected model not found.'));
+			cancelInlineEdit();
+			return;
+		}
+
+		const currentPosition = inlineEditInputPosition;
+		cancelInlineEdit();
+
+		enhancing = true;
+		streaming = true;
+
+		let replacementText = '';
+
+		const systemPrompt = `You are an AI assistant tasked with editing a specific part of a larger note based on user instructions. You will be given the full note content for context, the specific selected text that needs editing, and the user's request.
+
+Context Note:
+<note>
+${note.data.content.md}
+</note>
+
+Instructions: Edit the content within the <selection> tags based on the user's request and the context of the full <note>. Your response should ONLY contain the rewritten text for the selection, without any extra explanations, markdown formatting (unless appropriate for the rewrite), or XML tags. The rewritten text will directly replace the original selection in the note.`;
+
+		const userMessage = `User Request: ${userInput}
+
+Selected Text to Edit:
+<selection>
+${selectedText}
+</selection>`;
+
+		try {
+			const [res, controller] = await chatCompletion(
+				localStorage.token,
+				{
+					model: model.id,
+					stream: true,
+					messages: [
+						{
+							role: 'system',
+							content: systemPrompt
+						},
+						{
+							role: 'user',
+							content: userMessage
+						}
+					]
+				},
+				`${WEBUI_BASE_URL}/api`
+			);
+
+			if (res && res.ok) {
+				const reader = res.body
+					.pipeThrough(new TextDecoderStream())
+					.pipeThrough(splitStream('\n'))
+					.getReader();
+
+				while (true) {
+					const { value, done } = await reader.read();
+					if (done) {
+						break;
+					}
+
+					try {
+						let lines = value.split('\n');
+
+						for (const line of lines) {
+							if (line.startsWith('data: ')) {
+								const dataLine = line.substring(6);
+								if (dataLine.trim() === '[DONE]') {
+									break;
+								}
+								try {
+									const data = JSON.parse(dataLine);
+									if (data.choices && data.choices[0]?.delta?.content) {
+										replacementText += data.choices[0].delta.content;
+									}
+								} catch (parseError) {
+									console.error('Error parsing stream data:', parseError, 'Line:', dataLine);
+								}
+							}
+						}
+					} catch (readError) {
+						console.error('Error reading stream chunk:', readError);
+						toast.error($i18n.t('Error processing AI response.'));
+						break;
+					}
+				}
+			} else {
+				const errorData = await res.text();
+				console.error('Error fetching inline edit completion:', res.status, errorData);
+				toast.error(`${$i18n.t('Failed to get response from model:')} ${res.statusText}`);
+			}
+		} catch (error) {
+			console.error('Error during inline edit:', error);
+			toast.error(`${$i18n.t('An error occurred during inline editing:')} ${error.message}`);
+		}
+
+		if (richTextInputInstance && replacementText) {
+			const currentSelection = richTextInputInstance.getSelectedText();
+			if (currentSelection === selectedText) {
+				// Strip the XML tags from the replacement text
+				replacementText = replacementText.replace(/<\/?selection>/g, '');
+				richTextInputInstance.replaceSelection(replacementText);
+			} else {
+				console.warn('Selection changed during inline edit. Replacement aborted.');
+				toast.warning($i18n.t('Selection changed. Could not apply edit.'));
+			}
+		} else if (!replacementText) {
+			toast.info($i18n.t('AI did not provide a replacement.'));
+		}
+
+		enhancing = false;
+		streaming = false;
+	}
+
+	function startInlineEdit(event) {
+		const selectedText = event.detail.content;
+		if (!selectedText || enhancing || versionIdx !== null || showInlineEditInput) {
+			return;
+		}
+
+		inlineEditSelectedText = selectedText;
+		inlineEditUserInput = '';
+
+		try {
+			const selection = window.getSelection();
+			if (selection.rangeCount > 0) {
+				const range = selection.getRangeAt(0);
+				const rect = range.getBoundingClientRect();
+				const container = document.getElementById('note-content-container');
+				const containerRect = container.getBoundingClientRect();
+
+				inlineEditInputPosition = {
+					top: rect.bottom - containerRect.top + container.scrollTop + 5,
+					left: rect.left - containerRect.left
+				};
+
+				showInlineEditInput = true;
+
+				tick().then(() => {
+					const inputElement = document.getElementById('inline-edit-input');
+					inputElement?.focus();
+				});
+			} else {
+				console.warn('Could not get selection range for positioning.');
+				return;
+			}
+		} catch (e) {
+			console.error("Error getting selection position:", e);
+			return;
+		}
+	}
+
+	function submitInlineEdit() {
+		if (inlineEditUserInput.trim() === '') {
+			toast.info($i18n.t('Please enter your edit instruction.'));
+			return;
+		}
+		executeInlineEdit();
+	}
+
+	function cancelInlineEdit() {
+		showInlineEditInput = false;
+		inlineEditUserInput = '';
+		inlineEditSelectedText = '';
 	}
 
 	function setContentByVersion(versionIdx) {
@@ -811,7 +1001,62 @@ Provide the enhanced notes in markdown format. Use markdown syntax for headings,
 					</div>
 				{/if}
 
+				<!-- Inline Edit Input Box -->
+				{#if showInlineEditInput}
+					<div
+						class="absolute py-1 flex dark:text-gray-100 bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-850 w-72 rounded-full shadow-xl"
+						style="top: {inlineEditInputPosition.top}px; left: {inlineEditInputPosition.left}px; min-width: 250px;"
+					>
+						<div class="z-999 flex dark:text-gray-100 bg-gray-50 dark:bg-gray-800 border border-gray-100 dark:border-gray-850 w-72 rounded-full shadow-xl">
+							<input
+								type="text"
+								id="inline-edit-input"
+								class="flex-1 bg-transparent outline-none px-2 py-1 text-sm"
+								placeholder={$i18n.t('How should I edit this?')}
+								bind:value={inlineEditUserInput}
+								on:keydown={(e) => {
+									if (e.key === 'Enter') {
+										e.preventDefault();
+										submitInlineEdit();
+									} else if (e.key === 'Escape') {
+										cancelInlineEdit();
+									}
+								}}
+							/>
+							<button
+								class="text-white bg-gray-200 dark:text-gray-900 dark:bg-gray-700 disabled transition rounded-full p-1.5 m-0.5 self-center"
+								on:click={submitInlineEdit}
+								disabled={inlineEditUserInput.trim() === '' || enhancing}
+								title={$i18n.t('Submit Edit')}
+							>
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									viewBox="0 0 16 16"
+									fill="currentColor"
+									class="size-4"
+								>
+									<path
+										fill-rule="evenodd"
+										d="M8 14a.75.75 0 0 1-.75-.75V4.56L4.03 7.78a.75.75 0 0 1-1.06-1.06l4.5-4.5a.75.75 0 0 1 1.06 0l4.5 4.5a.75.75 0 0 1-1.06 1.06L8.75 4.56v8.69A.75.75 0 0 1 8 14Z"
+										clip-rule="evenodd"
+									/>
+								</svg>
+							</button>
+							<button
+								class="text-white bg-gray-200 dark:text-gray-900 dark:bg-gray-700 disabled transition rounded-full p-1.5 m-0.5 self-center"
+								on:click={cancelInlineEdit}
+								title={$i18n.t('Cancel')}
+							>
+								<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="currentColor" class="size-4">
+								<path d="M5.28 4.22a.75.75 0 0 0-1.06 1.06L6.94 8l-2.72 2.72a.75.75 0 1 0 1.06 1.06L8 9.06l2.72 2.72a.75.75 0 1 0 1.06-1.06L9.06 8l2.72-2.72a.75.75 0 0 0-1.06-1.06L8 6.94 5.28 4.22Z" />
+								</svg>
+							</button>
+						</div>
+					</div>
+				{/if}
+
 				<RichTextInput
+					bind:this={richTextInputInstance}
 					className="input-prose-sm px-0.5"
 					bind:value={note.data.content.json}
 					placeholder={$i18n.t('Write something...')}
@@ -822,6 +1067,7 @@ Provide the enhanced notes in markdown format. Use markdown syntax for headings,
 						note.data.content.html = content.html;
 						note.data.content.md = content.md;
 					}}
+					on:inline-edit={startInlineEdit}
 				/>
 			</div>
 		</div>
